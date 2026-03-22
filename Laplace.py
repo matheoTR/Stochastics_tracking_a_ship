@@ -1,24 +1,43 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import norm, laplace
+
+# for saving results
+OUTPUT_DIR = "results"
 
 # 1. Setup True Parameters and Simulation Settings
 true_mu = 1.0
 true_b = 2.0
-M = 500  # Number of experiments per N
-N_values = [10, 50, 100, 500, 1000, 5000]
+M = 1000  # Number of experiments per N
+N_values = [10, 50, 100, 500, 1000, 5000, 10000]
 
+# Question d
 mu_estimates_all = []
 b_estimates_all = []
+# Question e
+emp_var_mu = []
+emp_var_b = []
+
 np.random.seed(42)
 
-# Generate Data
 for N in N_values:
+    # Generate Data
     samples = np.random.laplace(loc=true_mu, scale=true_b, size=(M, N))
+
+    # Estimates
     mu_hat = np.median(samples, axis=1)
     b_hat = np.mean(np.abs(samples - mu_hat[:, np.newaxis]), axis=1)
+
     mu_estimates_all.append(mu_hat)
     b_estimates_all.append(b_hat)
 
+    # Calculate Empirical Variance across the M trials
+    emp_var_mu.append(np.var(mu_hat))
+    emp_var_b.append(np.var(b_hat))
+
+# -----------------------------
+# QUESTION D: Laplace simulations
+# -----------------------------
 # 2. Setup Figure and Styling
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -115,4 +134,99 @@ ax2.set_facecolor("#F8F9FA")
 
 # Final layout adjustments
 plt.tight_layout()
-plt.show()
+plt.savefig(f"{OUTPUT_DIR}/ML_estimator.png")
+plt.close()
+
+
+# -----------------------------
+# QUESTION E: Variance and Cramer-Rao
+# -----------------------------
+
+# Theoretical CRLB
+theoretical_crlb = (true_b**2) / np.array(N_values)
+
+# Plotting
+plt.figure(figsize=(10, 6))
+plt.loglog(
+    N_values,
+    emp_var_mu,
+    "o-",
+    label=r"Empirical $Var(\hat{\mu})$",
+    color="#023E8A",
+    markersize=8,
+)
+plt.loglog(
+    N_values,
+    emp_var_b,
+    "s-",
+    label=r"Empirical $Var(\hat{b})$",
+    color="#1B4332",
+    markersize=8,
+)
+plt.loglog(
+    N_values, theoretical_crlb, "r--", linewidth=2, label="Theoretical CRLB ($b^2/N$)"
+)
+
+plt.title(
+    "Convergence Analysis: Variance vs. Sample Size", fontsize=14, fontweight="bold"
+)
+plt.xlabel("Sample Size (N)", fontsize=12)
+plt.ylabel("Variance", fontsize=12)
+plt.grid(True, which="both", ls="-", alpha=0.5)
+plt.legend(fontsize=11)
+plt.tight_layout()
+plt.savefig(f"{OUTPUT_DIR}/variance_convergence.png")
+plt.close()
+
+# -----------------
+# f: comparison between Gaussian and Laplace distributions with same parameters
+# -----------------
+
+# 1. Define parameters
+mu = 0
+sigma = 2
+variance = sigma**2
+
+# 2. Calculate the corresponding Laplace 'b' parameter
+# Since Var_laplace = 2 * b^2, to match Var_normal = sigma^2:
+b = sigma / np.sqrt(2)
+
+# 3. Create x-axis
+x = np.linspace(-10, 10, 1000)
+
+# 4. Generate PDFs
+pdf_normal = norm.pdf(x, mu, sigma)
+pdf_laplace = laplace.pdf(x, mu, b)
+
+# 5. Plotting
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    x,
+    pdf_normal,
+    label=f"Normal ($\mu$={mu}, $\sigma$={sigma})",
+    color="#D62828",
+    linewidth=3,
+)
+plt.plot(
+    x,
+    pdf_laplace,
+    label=f"Laplace ($\mu$={mu}, $b$={b:.2f})",
+    color="#023E8A",
+    linewidth=3,
+    linestyle="--",
+)
+
+# Styling
+plt.fill_between(x, pdf_laplace, alpha=0.1, color="#023E8A")
+plt.title("Normal vs. Laplace (Same Mean and Variance)", fontsize=14, fontweight="bold")
+plt.xlabel("Value", fontsize=12)
+plt.ylabel("Probability Density", fontsize=12)
+plt.legend(fontsize=11)
+plt.grid(axis="both", alpha=0.3)
+plt.gca().set_facecolor("#F8F9FA")
+
+plt.tight_layout()
+plt.savefig(f"{OUTPUT_DIR}/Laplace_vs_Gaussian_comparison.png")
+plt.close()
+
