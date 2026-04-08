@@ -8,6 +8,69 @@ u_input = np.loadtxt("Input.txt")
 s_true = x_true_all[:, :2]
 
 
+def kalman_filter(T=100, dt=0.1):
+    # Paramètres du projet
+    mu_laplace = 1.0
+    b_laplace = 1.0
+    sigma_v2 = 1.0
+
+    # 2. Définition des matrices du modèle (Espace d'état)
+    # État X = [x, y, vx, vy]
+    A = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
+
+    B = np.array([[0.5 * dt**2, 0], [0, 0.5 * dt**2], [dt, 0], [0, dt]])
+
+    # Matrice G pour le bruit d'accélération (c'est la même que b prcq le bruit est une accélération)
+    G = B.copy()
+
+    # Matrice d'observation H
+    H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+
+    # 3. Covariances du bruit
+    # Q = 2 * b^2 * G * G^T
+    Q = 2 * (b_laplace**2) * (G @ G.T)
+
+    # R = sigma_v^2 * I (2x2)
+    R = np.eye(2) * sigma_v2
+
+    # 4. Initialisation du filtre
+    X_hat = np.array([10.0, 10.0, 10.0, 10.0])  # Moyennes s0 et v0
+    P = np.diag([50.0, 50.0, 10.0, 10.0])  # P0_pos=50, P0_vel=10
+
+    # Stockage des résultats
+    estimations = []
+
+    # 5. Boucle du Filtre de Kalman
+    for k in range(T):
+        u_k = u_input[k]
+        z_k = x_obs[k]
+
+        # --- ÉTAPE DE PRÉDICTION ---
+        # Modification pour le bruit de Laplace non centré (mu=1)
+        shift_term = G @ np.array([mu_laplace, mu_laplace])
+        X_pred = A @ X_hat + B @ u_k + shift_term
+        P_pred = A @ P @ A.T + Q
+
+        # --- ÉTAPE DE MISE À JOUR (Correction) ---
+        S = H @ P_pred @ H.T + R
+        K = P_pred @ H.T @ np.linalg.inv(S)
+
+        X_hat = X_pred + K @ (z_k - H @ X_pred)
+        P = (np.eye(4) - K @ H) @ P_pred
+
+        estimations.append(X_hat[:2])  # On garde (x, y)
+
+    estimations = np.array(estimations)
+
+    # --- 4. PERFORMANCE ---
+    error_vectors = s_true - estimations
+    squared_norms = np.sum(error_vectors**2, axis=1)
+    mse_kalman = np.mean(squared_norms)
+    error_over_time = np.sqrt(squared_norms)
+
+    return mse_kalman, error_over_time, estimations
+
+
 def SIR_particle_filter(N=1000, T=100, dt=0.1):
     """
     N = Number of particles
@@ -140,22 +203,31 @@ def main():
     os.makedirs(RESULTS, exist_ok=True)
 
     N_sizes = [10, 100, 1000, 5000]
-    M = 100
-    T = 100
+    M, T, dt = 100, 100, 0.1
     global_mse_results = []
 
-    # Figure for Error over Time
-    fig_error, ax_error = plt.subplots(figsize=(10, 6))
+    # --- 1. KALMAN FILTER EXECUTION AND PLOTTING ---
+    print("Running Kalman Filter...")
+    mse_k, err_k, estimations_k = kalman_filter(T, dt)
 
-    # Figure for Trajectory Comparison
+    plt.figure(figsize=(10, 6))
+    plt.plot(s_true[:, 0], s_true[:, 1], "g-", label="Real Trajectory")
+    plt.plot(x_obs[:, 0], x_obs[:, 1], "r.", alpha=0.3, label="Noisy observations")
+    plt.plot(estimations_k[:, 0], estimations_k[:, 1], "b--", label="Kalman estimation")
+    plt.xlabel("Position X")
+    plt.ylabel("Position Y")
+    plt.title("Ship tracking: Kalman Filter")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(RESULTS, "Kalman_Tracking_Result.png"))
+    plt.show()
+
+    # --- 2. SIR PARTICLE FILTERS EXECUTION ---
+    fig_error, ax_error = plt.subplots(figsize=(10, 6))
     fig_traj, ax_traj = plt.subplots(figsize=(10, 8))
+
     ax_traj.plot(
-        s_true[:, 0],
-        s_true[:, 1],
-        "g-",
-        linewidth=3,
-        label="Vraie trajectoire",
-        zorder=5,
+        s_true[:, 0], s_true[:, 1], "g-", linewidth=3, label="Real trajectory", zorder=5
     )
     ax_traj.scatter(
         x_obs[:, 0],
@@ -163,41 +235,36 @@ def main():
         color="red",
         s=5,
         alpha=0.2,
-        label="Observations bruitées",
+        label="Noisy observations",
         zorder=1,
     )
 
     for N in N_sizes:
         print(f"Running simulation for N = {N} particles...")
-
         all_MSE = np.empty(M)
         all_errors_over_time = np.empty((M, T))
         all_trajectories = np.empty((M, T, 2))
 
         for i in range(M):
             all_MSE[i], all_errors_over_time[i], all_trajectories[i] = (
-                SIR_particle_filter(N, T)
+                SIR_particle_filter(N, T, dt)
             )
 
-        # Calculate Averages
         avg_mse = np.mean(all_MSE)
         global_mse_results.append(avg_mse)
         avg_error_over_time = np.mean(all_errors_over_time, axis=0)
         avg_trajectory = np.mean(all_trajectories, axis=0)
 
-        # Add to Combined Error Plot
         ax_error.plot(avg_error_over_time, label=f"N = {N}")
-
-        # Add to Combined Trajectory Plot
         ax_traj.plot(
             avg_trajectory[:, 0],
             avg_trajectory[:, 1],
             "--",
             linewidth=1.5,
-            label=f"Estimation SIR (N={N})",
+            label=f"SIR estimation (N={N})",
         )
 
-    # --- 3. ERROR PLOT ---
+    # --- 3. SIR PLOTS ---
     ax_error.set_title(f"Comparison of Mean Position Error (M={M} trials)")
     ax_error.set_xlabel("Time Step")
     ax_error.set_ylabel("Euclidean Distance Error")
@@ -206,23 +273,25 @@ def main():
     fig_error.savefig(os.path.join(RESULTS, "combined_SIR_error_plot.png"))
     plt.close(fig_error)
 
-    # --- 4. TRAJECTORY PLOT ---
-    ax_traj.set_title(f"Suivi de navire: Comparaison des filtres SIR (M={M})")
+    ax_traj.set_title(f"Ship tracking: Particle Filter over {M} experiments")
     ax_traj.set_xlabel("Position X (m)")
     ax_traj.set_ylabel("Position Y (m)")
     ax_traj.legend(loc="best")
     ax_traj.grid(True, linestyle=":", alpha=0.6)
     fig_traj.savefig(os.path.join(RESULTS, "combined_SIR_trajectories.png"))
+    plt.show()
     plt.close(fig_traj)
 
-    # --- 5. MSE vs N ---
+    # --- 4. SIR CONVERGENCE ANALYSIS ---
     plt.figure(figsize=(8, 6))
     plt.loglog(N_sizes, global_mse_results, "o-r", linewidth=2)
-    plt.title("Filter Convergence: Global MSE vs. Number of Particles")
+    plt.title("SIR Filter Convergence: Global MSE vs. Number of Particles")
     plt.xlabel("Number of Particles (Np)")
     plt.ylabel("Mean Square Error (MSE)")
     plt.grid(True, which="both", ls="-", alpha=0.5)
     plt.savefig(os.path.join(RESULTS, "SIR_convergence_analysis.png"))
+
+    print("Done.")
 
 
 if __name__ == "__main__":
