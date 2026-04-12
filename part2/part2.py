@@ -209,6 +209,8 @@ def main():
     # --- 1. KALMAN FILTER EXECUTION AND PLOTTING ---
     print("Running Kalman Filter...")
     mse_k, err_k, estimations_k = kalman_filter(T, dt)
+    
+    print(f"Kalman Filter completed. MSE: {mse_k:.4f}")
 
     plt.figure(figsize=(10, 6))
     plt.plot(s_true[:, 0], s_true[:, 1], "g-", label="Real Trajectory")
